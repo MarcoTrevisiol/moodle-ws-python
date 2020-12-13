@@ -31,3 +31,12 @@ Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public
 License along with Moodle Web Services - Python (see COPYING).  If
 not, see http://www.gnu.org/licenses/.
+
+
+Client
+------
+Added a small CLI interface to directly use the web service. Just call
+```
+python3 cli.py [-h] [command]
+```
+

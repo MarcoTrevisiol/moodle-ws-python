@@ -5,7 +5,7 @@ from client import Client
 parser = argparse.ArgumentParser(description='Small client for Moodle Web Service')
 subparser = parser.add_subparsers(title='Available commands', dest='command', metavar='command')
 
-subparser.add_parser('config', help='show configuration')
+subparser.add_parser('config', help='show client configuration (stored locally)')
 subp = subparser.add_parser('set_domain', help='insert/update a moodle domain')
 subp.add_argument('domain', help='domain of moodle server')
 subp = subparser.add_parser('auth', help='authenticate with username and password')
