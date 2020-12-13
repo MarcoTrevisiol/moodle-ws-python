@@ -7,7 +7,6 @@
 # Moodle Package
 
 
-import string
 import logging
 import traceback
 
@@ -213,7 +212,7 @@ class WS(object):
                               comment="", comment_format=0, file_mgr=0):
 
         # For some reason, Moodle chokes on '<' in the comment field...
-        comment = comment.translate(string.maketrans("<", "?"))
+        comment = comment.translate({ord("<"): "?"})
 
         function = 'mod_assign_save_grade'
         params = {}
@@ -341,16 +340,6 @@ class WSUser(WS):
         if not getattr(self, 'last', None):
             if getattr(self, 'full', ""):
                 self.last = getattr(self, 'full', "").split()[-1]
-
-        # Raise error if missing key data
-        if not getattr(self, 'token', None):
-            raise ValueError("Missing 'token'")
-        if not getattr(self, 'userid', None):
-            raise ValueError("Missing 'userid'")
-        if not getattr(self, 'username', None):
-            raise ValueError("Missing 'username'")
-        if not getattr(self, 'email', None):
-            raise ValueError("Missing 'email'")
 
         # Return
         return
