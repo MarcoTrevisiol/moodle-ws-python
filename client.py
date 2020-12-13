@@ -1,0 +1,333 @@
+import json
+import argparse
+import re
+import sys
+from pathlib import Path
+import ws
+
+
+# Exceptions #
+class ClientError(Exception):
+    def __init__(self, *args):
+        super(ClientError, self).__init__(*args)
+
+
+class Client(object):
+    filename_config = "config.json"
+    downloads_dir = "downloads"
+    downloads_path = Path.cwd() / downloads_dir
+
+    def __init__(self):
+        try:
+            with open(Client.filename_config, 'r') as fc:
+                self.config = json.load(fc)
+        except FileNotFoundError:
+            self.config = {}
+
+    def save_state(self):
+        with open(Client.filename_config, 'w') as fc:
+            json.dump(self.config, fc)
+
+    @staticmethod
+    def save_data(obtained_data, filename):
+        if not Client.downloads_path.exists():
+            Client.downloads_path.mkdir()
+        with open(Client.downloads_path / filename, 'w') as fd:
+            json.dump(obtained_data, fd)
+
+    def __str__(self):
+        str_out = ""
+        if 'domain' in self.config.keys():
+            str_out += 'domain: "{}"\n'.format(self.config['domain'])
+        if self.is_authenticate():
+            str_out += 'Authenticated\n'
+        else:
+            str_out += 'NOT AUTHENTICATED\n'
+        if 'user' in self.config.keys():
+            str_out += json.dumps(self.config['user'], indent=True) + '\n'
+        if 'course_id' in self.config.keys():
+            str_out += 'course_id: {}\n'.format(self.config['course_id'])
+        if 'comment' in self.config.keys():
+            str_out += 'default comment: "{}"\n'.format(self.config['comment'])
+        return str_out
+
+    def set_domain(self, domain):
+        # If the domain is changing, we are no longer authenticated
+        if 'domain' in self.config.keys() and self.config['domain'] != domain:
+            del self.config['token']
+        self.config['domain'] = domain
+
+    def authenticate(self, username, password):
+        # We need a domain in order to ask for authentication
+        if 'domain' not in self.config.keys() or not self.config['domain']:
+            raise ClientError('Moodle Domain not inserted!')
+        service_name = 'moodle_mobile_app'
+        web_service = ws.WS(self.config['domain'])
+        web_service.authenticate(user=username, password=password, service=service_name)
+        self.config['token'] = web_service.token
+
+    def is_authenticate(self):
+        return 'token' in self.config.keys() and self.config['token']
+
+    def set_comment(self, comment):
+        self.config['comment'] = comment
+
+    def get_site_info(self):
+        if not self.is_authenticate():
+            raise ClientError('Not authenticated yet!')
+        web_service = ws.WS(self.config['domain'], self.config['token'])
+        site_info = web_service.core_webservice_get_site_info()
+        Client.save_data(site_info, 'site_info.json')
+        self.config['user'] = {
+            'userid': site_info.get('userid', ""),
+            'username': site_info.get('username', ""),
+            'email': site_info.get('email', ""),
+            'first': site_info.get('firstname', ""),
+            'last': site_info.get('lastname', ""),
+            'full': site_info.get('fullname', ""),
+        }
+
+    def get_courses(self, verbose=True):
+        filename = 'users_courses.json'
+        filepath = Client.downloads_path / filename
+        if filepath.exists():
+            with open(filepath, 'r') as fd:
+                users_courses = json.load(fd)
+        else:
+            if not self.is_authenticate():
+                raise ClientError('Not authenticated yet!')
+            web_service = ws.WS(self.config['domain'], self.config['token'])
+            if 'user' not in self.config.keys():
+                self.get_site_info()
+            params = {
+                'userid': self.config['user']['userid']
+            }
+            users_courses = web_service.make_request('core_enrol_get_users_courses', params)
+            Client.save_data(users_courses, filename)
+
+        if verbose:
+            for course in users_courses:
+                print("{} : {}".format(course['id'], course['shortname']))
+        return [course['id'] for course in users_courses]
+
+    def set_course(self, course_id):
+        if course_id not in self.get_courses(verbose=False):
+            raise ClientError('Invalid course id!')
+        self.config['course_id'] = course_id
+
+    def get_enrolled(self, verbose=True):
+        if 'course_id' not in self.config.keys():
+            raise ClientError('No course pointed!')
+        filename = 'enrolled_{}.json'.format(self.config['course_id'])
+        filepath = Client.downloads_path / filename
+
+        if filepath.exists():
+            with open(filepath, 'r') as fd:
+                enrolled_users = json.load(fd)
+        else:
+            if not self.is_authenticate():
+                raise ClientError('Not authenticated yet!')
+            web_service = ws.WS(self.config['domain'], self.config['token'])
+            enrolled_users = web_service.core_enrol_get_enrolled_users(self.config['course_id'])
+            Client.save_data(enrolled_users, filename)
+
+        if verbose:
+            for user in enrolled_users:
+                print(user['id'],
+                      ' '.join([w.capitalize() for w in user['fullname'].split(' ')]),
+                      '({})'.format('.'.join([r['shortname'] for r in user['roles']])))
+        return [{
+            'userid': user['id'],
+            'firstname': user['firstname'],
+            'lastname': user['lastname'],
+            'roles': '.'.join([r['shortname'] for r in user['roles']])
+        } for user in enrolled_users]
+
+    def get_assignments(self, verbose=True):
+        if 'course_id' not in self.config.keys():
+            raise ClientError('No course pointed!')
+        filename = 'assignments_{}.json'.format(self.config['course_id'])
+        filepath = Client.downloads_path / filename
+
+        if filepath.exists():
+            with open(filepath, 'r') as fd:
+                assignments = json.load(fd)
+        else:
+            if not self.is_authenticate():
+                raise ClientError('Not authenticated yet!')
+            web_service = ws.WS(self.config['domain'], self.config['token'])
+            # mod_assign_get_assignments requires a list of course ids, but we supply only one
+            assignments = web_service.mod_assign_get_assignments([self.config['course_id']])
+            assignments = assignments['courses'][0]
+            Client.save_data(assignments, filename)
+
+        if verbose:
+            for asn in assignments['assignments']:
+                print(asn['id'], asn['name'])
+        return [{
+            'id': asn['id'],
+            'name': asn['name'],
+        } for asn in assignments['assignments']]
+
+    def get_submissions(self, asn_id, verbose=True):
+        if 'course_id' not in self.config.keys():
+            raise ClientError('No course pointed!')
+        if asn_id not in [asn['id'] for asn in self.get_assignments(verbose=False)]:
+            raise ClientError('Invalid assignment id!')
+        filename = 'submissions_{}_{}.json'.format(self.config['course_id'], asn_id)
+        filepath = Client.downloads_path / filename
+
+        if filepath.exists():
+            with open(filepath, 'r') as fd:
+                submissions = json.load(fd)
+        else:
+            if not self.is_authenticate():
+                raise ClientError('Not authenticated yet!')
+            web_service = ws.WS(self.config['domain'], self.config['token'])
+            # mod_assign_get_submissions requires a list of assignment ids,
+            # but we supply only one
+            submissions = web_service.mod_assign_get_submissions([asn_id])
+            submissions = submissions['assignments'][0]
+            Client.save_data(submissions, filename)
+
+        if verbose:
+            for sub in submissions['submissions']:
+                print(sub['userid'], sub['status'], sub['gradingstatus'])
+        return [{
+            'userid': sub['userid'],
+            'status': sub['status'],
+            'gradingstatus': sub['gradingstatus'],
+        } for sub in submissions['submissions']]
+
+    def auto_grade_missing(self, asn_id, verbose=True):
+        if asn_id not in [asn['id'] for asn in self.get_assignments(verbose=False)]:
+            raise ClientError('Invalid assignment id!')
+        if not self.is_authenticate():
+            raise ClientError('Not authenticated yet!')
+        web_service = ws.WS(self.config['domain'], self.config['token'])
+
+        enrolled_users = self.get_enrolled(verbose=False)
+        user_roles = {user['userid']: user['roles'] for user in enrolled_users}
+        user_names = {user['userid']: "{} {}".format(user['firstname'].capitalize(),
+                                                     user['lastname'].capitalize())
+                      for user in enrolled_users}
+        submissions = {sub['userid']: {
+            'status': sub['status'],
+            'gradingstatus': sub['gradingstatus'],
+        } for sub in self.get_submissions(asn_id, verbose=False)}
+
+        def is_assignment_missing(userid):
+            if 'student' not in user_roles[userid]:
+                return False
+            if userid not in submissions.keys():
+                return True
+            if submissions[userid]['gradingstatus'] == 'graded':
+                return False
+            if submissions[userid]['status'] == 'new':
+                return True
+            return False
+
+        student_missing = [user['userid']
+                           for user in enrolled_users
+                           if is_assignment_missing(user['userid'])]
+        for st in student_missing:
+            if verbose:
+                print(st, user_names[st], '({})'.format(user_roles[st]), end=' ')
+                if st in submissions.keys():
+                    print(submissions[st]['status'], submissions[st]['gradingstatus'])
+                else:
+                    print('')
+            web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
+                                              grade=0, comment=self.config['comment'])
+
+
+parser = argparse.ArgumentParser(description='Small client for Moodle Web Service')
+subparser = parser.add_subparsers(title='Available commands', dest='command', metavar='command')
+
+subparser.add_parser('config', help='show configuration')
+subp = subparser.add_parser('set_domain', help='insert/update a moodle domain')
+subp.add_argument('domain', help='domain of moodle server')
+subp = subparser.add_parser('auth', help='authenticate with username and password')
+subp.add_argument('user')
+subp.add_argument('password')
+subp = subparser.add_parser('set_comment', help='insert default comment for auto_grade')
+subp.add_argument('comment')
+subparser.add_parser('site_info', help='get some data')
+subparser.add_parser('get_courses', help='get courses')
+subp = subparser.add_parser('set_course', help='set a course where to perform operations')
+subp.add_argument('course_id', type=int)
+subparser.add_parser('get_enr', help='get enrolled users (for selected course)')
+subparser.add_parser('get_asn', help='get assignments (for selected course)')
+subp = subparser.add_parser('get_sub', help='get submissions for an assignment')
+subp.add_argument('assignment_id', type=int)
+subp = subparser.add_parser('auto_grade', help='auto grade assignment where submission is missing')
+subp.add_argument('assignment_id', type=int)
+
+arguments = parser.parse_args()
+if arguments.command == 'config':
+    cl = Client()
+    print(cl, end='')
+    exit(0)
+
+if arguments.command == 'set_domain':
+    cl = Client()
+    domain = arguments.domain
+    if not re.match(r'https?://', domain):
+        domain = 'https://{}'.format(domain)
+    cl.set_domain(domain)
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'auth':
+    cl = Client()
+    cl.authenticate(arguments.user, arguments.password)
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'set_comment':
+    cl = Client()
+    cl.set_comment(arguments.comment)
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'site_info':
+    cl = Client()
+    cl.get_site_info()
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'get_courses':
+    cl = Client()
+    cl.get_courses()
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'set_course':
+    cl = Client()
+    cl.set_course(arguments.course_id)
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'get_enr':
+    cl = Client()
+    cl.get_enrolled()
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'get_asn':
+    cl = Client()
+    cl.get_assignments()
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'get_sub':
+    cl = Client()
+    cl.get_submissions(arguments.assignment_id)
+    cl.save_state()
+    exit(0)
+
+if arguments.command == 'auto_grade':
+    cl = Client()
+    cl.auto_grade_missing(arguments.assignment_id)
+    cl.save_state()
+    exit(0)

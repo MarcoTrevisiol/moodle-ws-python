@@ -3,3 +3,11 @@
 
 # Python Cruft
 *.pyc
+
+# PyCharm
+.idea/
+
+# Client products
+config.json
+downloads
+
