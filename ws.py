@@ -200,6 +200,13 @@ class WS(object):
         return self.make_request(function, params)
 
     @requires_auth
+    def mod_assign_get_submissions(self, asn_ids):
+        function = 'mod_assign_get_submissions'
+        params = {}
+        params.update(self._build_array('assignmentids', asn_ids))
+        return self.make_request(function, params)
+
+    @requires_auth
     def mod_assign_get_grades(self, asn_ids):
         function = 'mod_assign_get_grades'
         params = {}
