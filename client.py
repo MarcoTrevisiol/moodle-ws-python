@@ -200,7 +200,7 @@ class Client(object):
             'gradingstatus': sub['gradingstatus'],
         } for sub in submissions['submissions']]
 
-    def auto_grade_missing(self, asn_id, verbose=True):
+    def auto_grade_missing(self, asn_id, verbose=True, remove_grading=False):
         if asn_id not in [asn['id'] for asn in self.get_assignments(verbose=False)]:
             raise ClientError('Invalid assignment id!')
         if not self.is_authenticate():
@@ -238,6 +238,10 @@ class Client(object):
                     print(submissions[st]['status'], submissions[st]['gradingstatus'])
                 else:
                     print('')
-            web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
-                                              grade=0, comment=self.config['comment'])
+            if not remove_grading:
+                web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
+                                                  grade=0, comment=self.config['comment'])
+            else:
+                web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
+                                                  grade="", comment="")
 
