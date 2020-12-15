@@ -1,8 +1,12 @@
+#!/usr/bin/env /usr/bin/python3
+
 import argparse
 import re
+# import shtab
 from client import Client
 
 parser = argparse.ArgumentParser(description='Small client for Moodle Web Service')
+# shtab.add_argument_to(parser, ["-s", "--print-completion"])  # magic!
 subparser = parser.add_subparsers(title='Available commands', dest='command', metavar='command')
 
 subparser.add_parser('config', help='show client configuration (stored locally)')
