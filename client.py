@@ -1,6 +1,11 @@
 import json
+import logging
+from datetime import datetime
 from pathlib import Path
 import ws
+
+logging.basicConfig(filename='auto-grade.log',
+                    level=logging.INFO)
 
 
 # Exceptions #
@@ -168,6 +173,7 @@ class Client(object):
         return [{
             'id': asn['id'],
             'name': asn['name'],
+            'cutoffdate': datetime.fromtimestamp(int(asn['cutoffdate']))
         } for asn in assignments['assignments']]
 
     def get_submissions(self, asn_id, verbose=True):
@@ -200,11 +206,21 @@ class Client(object):
             'gradingstatus': sub['gradingstatus'],
         } for sub in submissions['submissions']]
 
-    def auto_grade_missing(self, asn_id, verbose=True, remove_grading=False):
-        if asn_id not in [asn['id'] for asn in self.get_assignments(verbose=False)]:
-            raise ClientError('Invalid assignment id!')
+    def auto_grade_missing(self, asn_id, verbose=True):
         if not self.is_authenticate():
             raise ClientError('Not authenticated yet!')
+        assignments = self.get_assignments(verbose=False)
+        valid_assignment_ids = [asn['id'] for asn in assignments]
+        if asn_id not in valid_assignment_ids:
+            raise ClientError('Invalid assignment id!')
+        assignments_without_cutoff = [asn['id'] for asn in assignments
+                                      if asn['cutoffdate'] == datetime.fromtimestamp(0)]
+        if asn_id in assignments_without_cutoff:
+            raise ClientError('Assignment without cutoffdate!')
+        assignments_not_cutoff = [asn['id'] for asn in assignments
+                                  if asn['cutoffdate'] > datetime.now()]
+        if asn_id in assignments_not_cutoff:
+            raise ClientError('Assignment submissions not cutoff-ed!')
         web_service = ws.WS(self.config['domain'], self.config['token'])
 
         enrolled_users = self.get_enrolled(verbose=False)
@@ -231,6 +247,7 @@ class Client(object):
         student_missing = [user['userid']
                            for user in enrolled_users
                            if is_assignment_missing(user['userid'])]
+        logging.info('--auto-grading--')
         for st in student_missing:
             if verbose:
                 print(st, user_names[st], '({})'.format(user_roles[st]), end=' ')
@@ -238,10 +255,8 @@ class Client(object):
                     print(submissions[st]['status'], submissions[st]['gradingstatus'])
                 else:
                     print('')
-            if not remove_grading:
-                web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
-                                                  grade=0, comment=self.config['comment'])
-            else:
-                web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
-                                                  grade="", comment="")
+
+            logging.info(f'asn_id={asn_id}, usr_id={st}, user_names={user_names[st]}')
+            web_service.mod_assign_save_grade(asn_id=asn_id, usr_id=st,
+                                              grade=0, comment=self.config['comment'])
 

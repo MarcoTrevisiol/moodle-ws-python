@@ -1,4 +1,4 @@
-#!/usr/bin/env /usr/bin/python3
+#!/usr/bin/env python3
 
 import argparse
 import re
@@ -27,8 +27,6 @@ subp = subparser.add_parser('get_sub', help='get submissions for an assignment')
 subp.add_argument('assignment_id', type=int)
 subp = subparser.add_parser('auto_grade', help='auto grade assignment where submission is missing')
 subp.add_argument('assignment_id', type=int)
-subp.add_argument('-r', '--remove', action='store_true')
-subp.set_defaults(remove=False)
 
 arguments = parser.parse_args()
 if arguments.command == 'config':
@@ -95,6 +93,6 @@ if arguments.command == 'get_sub':
 
 if arguments.command == 'auto_grade':
     cl = Client()
-    cl.auto_grade_missing(arguments.assignment_id, remove_grading=arguments.remove)
+    cl.auto_grade_missing(arguments.assignment_id)
     cl.save_state()
     exit(0)
